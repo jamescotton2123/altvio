@@ -1,0 +1,6 @@
+ALTER TABLE traders ADD COLUMN IF NOT EXISTS api_key_hash TEXT;
+ALTER TABLE traders ADD COLUMN IF NOT EXISTS api_key_last8 TEXT;
+ALTER TABLE client_associates ADD COLUMN IF NOT EXISTS api_key_hash TEXT;
+ALTER TABLE client_associates ADD COLUMN IF NOT EXISTS api_key_last8 TEXT;
+ALTER TABLE advisors ADD COLUMN IF NOT EXISTS api_key_hash TEXT;
+ALTER TABLE advisors ADD COLUMN IF NOT EXISTS api_key_last8 TEXT;

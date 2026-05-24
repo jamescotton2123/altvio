@@ -1,0 +1,39 @@
+# Core
+python-dotenv
+supabase
+pytest
+pytest-cov
+httpx
+
+# API
+fastapi
+uvicorn[standard]
+pydantic
+bcrypt
+slowapi
+python-multipart
+python-json-logger
+
+# AI
+openai
+anthropic
+
+# Microsoft Graph + Auth
+msal
+requests
+tenacity
+
+# DocuSign
+docusign-esign
+
+# Scheduling
+APScheduler
+
+# Orion fuzzy matching
+rapidfuzz
+
+# Data processing
+pandas
+
+# Stripe (billing)
+stripe

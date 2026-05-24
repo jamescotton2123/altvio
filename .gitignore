@@ -1,0 +1,25 @@
+# Secrets and Config
+.env
+*.env
+
+# Python / Environment
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+env/
+
+# Data Files (Protecting Client PII)
+*.csv
+*.xlsx
+*.pdf
+*.json
+exports/
+backups/
+data/orion_households.csv
+
+# IDE / Cursor
+.vscode/
+.cursor/
+!.cursor/rules/
+.idea/
