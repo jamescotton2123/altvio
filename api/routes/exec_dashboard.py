@@ -95,6 +95,14 @@ def _get_exec_config(firm_id: str) -> dict:
     config = {**DEFAULT_EXEC_CONFIG, **saved}
     # Merge thresholds separately so partial overrides work
     config["thresholds"] = {**DEFAULT_EXEC_CONFIG["thresholds"], **(saved.get("thresholds") or {})}
+    # Append any default widgets missing from saved config (e.g. advisor_desk_health)
+    saved_widgets = saved.get("widgets") or config.get("widgets") or []
+    saved_ids = {w.get("id") for w in saved_widgets}
+    merged_widgets = list(saved_widgets)
+    for default_w in DEFAULT_EXEC_CONFIG.get("widgets", []):
+        if default_w["id"] not in saved_ids:
+            merged_widgets.append(default_w)
+    config["widgets"] = merged_widgets
     return config
 
 
@@ -166,6 +174,7 @@ def update_exec_config(
 # ---------------------------------------------------------------------------
 
 @router.get("")
+@router.get("/dashboard")
 def get_exec_dashboard(x_firm_id: Optional[str] = Header(default=None)):
     """
     Returns the full Executive Command Center payload.
@@ -214,15 +223,23 @@ def get_exec_dashboard(x_firm_id: Optional[str] = Header(default=None)):
         .data
     ) if "fund_progress" in enabled else []
 
-    recent_events = (
-        supabase.table("commitment_events")
-        .select("commitment_id, event_type, changed_at, new_value, investors(entity_name), deals(offering_name)")
-        .eq("firm_id", firm_id)
-        .order("changed_at", desc=True)
-        .limit(activity_count)
-        .execute()
-        .data
-    ) if "recent_activity" in enabled else []
+    recent_events: list[dict] = []
+    if "recent_activity" in enabled:
+        try:
+            recent_events = (
+                supabase.table("commitment_events")
+                .select(
+                    "commitment_id, event_type, changed_at, new_value, "
+                    "commitments(investors(entity_name), deals(offering_name))"
+                )
+                .eq("firm_id", firm_id)
+                .order("changed_at", desc=True)
+                .limit(activity_count)
+                .execute()
+                .data
+            ) or []
+        except Exception:
+            recent_events = []
 
     # -----------------------------------------------------------------------
     # AIP Summary
@@ -421,18 +438,29 @@ def get_exec_dashboard(x_firm_id: Optional[str] = Header(default=None)):
         from core.fee_expiry_digest import list_expiring_fee_arrangements
         from core.trader_liquidation_digest import list_firm_liquidation_watch
 
-        fs = (
-            supabase.table("firm_settings")
-            .select("fee_expiry_alert_days, trader_liquidation_alert_days")
-            .eq("firm_id", firm_id)
-            .single()
-            .execute()
-            .data
-        ) or {}
-        warn_days = int(fs.get("fee_expiry_alert_days") or 90)
-        trader_warn = int(fs.get("trader_liquidation_alert_days") or 14)
-        expiring_fees_count = len(list_expiring_fee_arrangements(firm_id, warn_days))
-        liquidation_watch_count = len(list_firm_liquidation_watch(firm_id, trader_warn))
+        warn_days = 90
+        trader_warn = 14
+        try:
+            fs = (
+                supabase.table("firm_settings")
+                .select("fee_expiry_alert_days, trader_liquidation_alert_days")
+                .eq("firm_id", firm_id)
+                .single()
+                .execute()
+                .data
+            ) or {}
+            warn_days = int(fs.get("fee_expiry_alert_days") or 90)
+            trader_warn = int(fs.get("trader_liquidation_alert_days") or 14)
+        except Exception:
+            pass
+        try:
+            expiring_fees_count = len(list_expiring_fee_arrangements(firm_id, warn_days))
+        except Exception:
+            expiring_fees_count = 0
+        try:
+            liquidation_watch_count = len(list_firm_liquidation_watch(firm_id, trader_warn))
+        except Exception:
+            liquidation_watch_count = 0
 
     ops_pulse = {
         "wire_verifications_pending": pending_wire_changes,
@@ -464,8 +492,9 @@ def get_exec_dashboard(x_firm_id: Optional[str] = Header(default=None)):
         "loi_sent": "LOI sent",
     }
     for event in recent_events:
-        investor = event.get("investors") or {}
-        deal = event.get("deals") or {}
+        commitment = event.get("commitments") or {}
+        investor = commitment.get("investors") or {}
+        deal = commitment.get("deals") or {}
         activity.append({
             "event_type": event.get("event_type"),
             "label": event_labels.get(event.get("event_type", ""), event.get("event_type", "")),
@@ -473,6 +502,7 @@ def get_exec_dashboard(x_firm_id: Optional[str] = Header(default=None)):
             "offering_name": deal.get("offering_name", ""),
             "value": event.get("new_value"),
             "occurred_at": event.get("changed_at"),
+            "commitment_id": event.get("commitment_id"),
         })
 
     period_label = "MTD" if velocity_period == "month" else "QTD"

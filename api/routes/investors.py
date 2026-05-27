@@ -63,7 +63,11 @@ def list_investors(
 
     query = (
         supabase.table("investors")
-        .select("id, entity_name, entity_type, primary_email, advisor_email, kyc_status, orion_match_status, private_wealth, client_associate_email, schwab_estimated_liquid_cash, created_at")
+        .select(
+            "id, entity_name, entity_type, primary_email, client_one_name, advisor_email, "
+            "kyc_status, orion_match_status, private_wealth, client_associate_email, "
+            "schwab_estimated_liquid_cash, created_at"
+        )
         .eq("firm_id", firm_id)
     )
 
@@ -248,14 +252,28 @@ def get_investor(
     investor_id: str,
     x_firm_id: Optional[str] = Header(default=None),
 ):
-    """Fetch a single investor's full record."""
+    """Fetch a single investor's full record, including fund commitments."""
     firm_id = _require_firm(x_firm_id)
-    return _get_investor(investor_id, firm_id)
+    investor = _get_investor(investor_id, firm_id)
+    commitments = (
+        supabase.table("commitments")
+        .select(
+            "id, deal_id, funded_amount, committed_amount, kyc_verified, verbal_confirmed, "
+            "deals(offering_name, status)"
+        )
+        .eq("investor_id", investor_id)
+        .eq("firm_id", firm_id)
+        .eq("status", "Active")
+        .execute()
+        .data
+    ) or []
+    return {**investor, "commitments": commitments}
 
 
 class InvestorUpdatePayload(BaseModel):
     entity_name: Optional[str] = None
     primary_email: Optional[str] = None
+    phone: Optional[str] = None
     mailing_address: Optional[str] = None
     entity_type: Optional[str] = None
     tax_id: Optional[str] = None

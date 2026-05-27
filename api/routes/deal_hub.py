@@ -1241,23 +1241,30 @@ def get_fund_ledger(
     # Last distribution per investor
     last_dist_map: dict[str, dict] = {}
     if investor_ids:
-        notices = (
-            supabase.table("distribution_notices")
-            .select("investor_id, individual_amount, distributions(distribution_date, sent_at)")
-            .in_("investor_id", investor_ids)
-            .execute()
-            .data
-        )
+        try:
+            notices = (
+                supabase.table("distribution_notices")
+                .select(
+                    "investor_id, individual_amount, sent_at, "
+                    "distributions(distribution_date)"
+                )
+                .in_("investor_id", investor_ids)
+                .execute()
+                .data
+            ) or []
+        except Exception:
+            notices = []
         for n in notices:
             inv_id = n["investor_id"]
-            dist = n.get("distributions", {})
+            dist = n.get("distributions") or {}
             if dist and dist.get("distribution_date"):
                 existing = last_dist_map.get(inv_id)
+                notice_sent = n.get("sent_at")
                 if not existing or dist["distribution_date"] > existing.get("date", ""):
                     last_dist_map[inv_id] = {
                         "date": dist["distribution_date"],
                         "amount": n.get("individual_amount"),
-                        "sent_at": dist.get("sent_at"),
+                        "sent_at": notice_sent,
                     }
 
     investor_rows = []

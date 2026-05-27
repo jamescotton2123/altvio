@@ -77,11 +77,24 @@ def get_ops_todos(x_firm_id: Optional[str] = Header(default=None)):
     warn_days = int(settings.get("fee_expiry_alert_days") or 90)
     trader_warn = int(settings.get("trader_liquidation_alert_days") or 14)
 
-    wire_verifications = _get_wire_verifications(firm_id)
-    kyc_pending = _get_kyc_pending(firm_id)
-    stale_subdocs = _get_stale_subdocs(firm_id)
-    expiring_fees = list_expiring_fee_arrangements(firm_id, warn_days)
-    liquidation_watch = list_firm_liquidation_watch(firm_id, trader_warn)
+    def _safe(label: str, fn):
+        try:
+            return fn()
+        except Exception as exc:
+            logger.warning("ops todos %s failed for firm %s: %s", label, firm_id, exc)
+            return []
+
+    wire_verifications = _safe("wire_verifications", lambda: _get_wire_verifications(firm_id))
+    kyc_pending = _safe("kyc_pending_review", lambda: _get_kyc_pending(firm_id))
+    stale_subdocs = _safe("stale_subdocs", lambda: _get_stale_subdocs(firm_id))
+    expiring_fees = _safe(
+        "expiring_fee_arrangements",
+        lambda: list_expiring_fee_arrangements(firm_id, warn_days),
+    )
+    liquidation_watch = _safe(
+        "liquidation_watch",
+        lambda: list_firm_liquidation_watch(firm_id, trader_warn),
+    )
 
     total = (
         len(wire_verifications)
@@ -233,11 +246,22 @@ def _get_wire_verifications(firm_id: str) -> list[dict]:
     return results
 
 
+def _infer_kyc_confidence(review: dict) -> str:
+    if review.get("escalated_to_compliance"):
+        return "low"
+    flags = review.get("flags") or []
+    if len(flags) >= 3:
+        return "low"
+    if len(flags) >= 1:
+        return "medium"
+    return "high"
+
+
 def _get_kyc_pending(firm_id: str) -> list[dict]:
     rows = (
         supabase.table("kyc_reviews")
         .select(
-            "id, investor_id, confidence, flags, created_at, "
+            "id, investor_id, flags, escalated_to_compliance, "
             "investors(entity_name, primary_email, phone, entity_type, kyc_status, "
             "handle_with_care, sensitivity_notes, commitments(committed_amount))"
         )
@@ -250,11 +274,7 @@ def _get_kyc_pending(firm_id: str) -> list[dict]:
     results = []
     for row in rows:
         investor = row.get("investors") or {}
-        try:
-            created = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
-            days_pending = (datetime.now(timezone.utc) - created).days
-        except Exception:
-            days_pending = 0
+        days_pending = 0
 
         commitments = investor.get("commitments") or []
         committed_amount = max((float(c.get("committed_amount") or 0) for c in commitments), default=0.0)
@@ -270,10 +290,9 @@ def _get_kyc_pending(firm_id: str) -> list[dict]:
             "handle_with_care": handle_with_care,
             "sensitivity_notes": investor.get("sensitivity_notes", ""),
             "committed_amount": committed_amount,
-            "confidence": row.get("confidence", ""),
+            "confidence": _infer_kyc_confidence(row),
             "flags": row.get("flags") or [],
             "days_pending": days_pending,
-            "submitted_at": row["created_at"],
             "action_label": "Review AI-extracted KYC data and approve or request more documents",
             "urgency": _urgency(committed_amount, handle_with_care, days_pending, high_days_threshold=3),
         })

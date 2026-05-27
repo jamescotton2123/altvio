@@ -71,21 +71,32 @@ BEGIN
   -- -------------------------------------------------------------------------
   -- INVESTORS
   -- -------------------------------------------------------------------------
-  INSERT INTO investors (id, firm_id, entity_name, entity_type, primary_email, advisor_email, kyc_status,
+  INSERT INTO investors (id, firm_id, entity_name, entity_type, primary_email, phone, mailing_address, advisor_email, kyc_status,
                          wire_instructions, handle_with_care, prefers_physical_mail,
                          state_of_formation, country_of_formation, created_at)
   VALUES
-    (v_inv1,  v_firm, 'Blackwood Family Trust',       'Trust',               'bft@example.com',        'advisor1@devria.com', 'Approved',   '{"bank":"Chase","account":"****4821","routing":"021000021"}',        false, false, 'DE', 'US', now() - interval '600 days'),
-    (v_inv2,  v_firm, 'Nguyen Capital LLC',            'LLC',                 'nguyen@example.com',     'advisor1@devria.com', 'Approved',   '{"bank":"Wells Fargo","account":"****7732","routing":"121000248"}',  false, false, 'CA', 'US', now() - interval '600 days'),
-    (v_inv3,  v_firm, 'Patricia Okonkwo',              'Individual',          'p.okonkwo@example.com',  'advisor2@devria.com', 'Reviewing',  '{"bank":"Citi","account":"****3301","routing":"031100209"}',         true,  false, NULL, 'US', now() - interval '12 days'),
-    (v_inv4,  v_firm, 'Sterling Ridge Partners LP',    'Limited Partnership', 'srp@example.com',        'advisor2@devria.com', 'Reviewing',  NULL,                                                                false, false, 'NY', 'US', now() - interval '18 days'),
-    (v_inv5,  v_firm, 'Dr. Marcus Holt Roth IRA',      'IRA',                 'mholt@example.com',      'advisor1@devria.com', 'Approved',   '{"bank":"Schwab","account":"****9901","routing":"121202211"}',       false, true,  NULL, 'US', now() - interval '550 days'),
-    (v_inv6,  v_firm, 'Calloway Foundation',           'Non-Profit',          'giving@calloway.org',    'advisor1@devria.com', 'Approved',   '{"bank":"Bank of America","account":"****2241","routing":"026009593"}', false, false, 'TX', 'US', now() - interval '400 days'),
-    (v_inv7,  v_firm, 'Westport Endowment Partners',   'LLC',                 'endowment@westport.com', 'advisor2@devria.com', 'Approved',   '{"bank":"JPMorgan","account":"****8810","routing":"021000021"}',     false, false, 'CT', 'US', now() - interval '350 days'),
-    (v_inv8,  v_firm, 'Chen & Associates IRA',          'IRA',                 'chen@example.com',       'advisor2@devria.com', 'Pending',    NULL,                                                                false, false, NULL, 'US', now() - interval '3 days'),
-    (v_inv9,  v_firm, 'Mirabel Group LLC',              'LLC',                 'info@mirabelgroup.com',  'advisor1@devria.com', 'Escalated',  NULL,                                                                false, false, 'FL', 'US', now() - interval '8 days'),
-    (v_inv10, v_firm, 'Aldridge Family Office',         'Trust',               'afo@aldridge.com',       'advisor1@devria.com', 'Approved',   '{"bank":"Fidelity","account":"****5503","routing":"101205681"}',     false, false, 'IL', 'US', now() - interval '200 days')
+    (v_inv1,  v_firm, 'Blackwood Family Trust',       'Trust',               'bft@example.com',        '+1 (302) 555-0142', '1200 Market St, Suite 400, Wilmington, DE 19801',        'advisor1@devria.com', 'Approved',   '{"bank":"Chase","account":"****4821","routing":"021000021"}',        false, false, 'DE', 'US', now() - interval '600 days'),
+    (v_inv2,  v_firm, 'Nguyen Capital LLC',            'LLC',                 'nguyen@example.com',     '+1 (415) 555-0198', '88 Spear St, San Francisco, CA 94105',                     'advisor1@devria.com', 'Approved',   '{"bank":"Wells Fargo","account":"****7732","routing":"121000248"}',  false, false, 'CA', 'US', now() - interval '600 days'),
+    (v_inv3,  v_firm, 'Patricia Okonkwo',              'Individual',          'p.okonkwo@example.com',  '+1 (212) 555-0176', '425 Park Ave, New York, NY 10022',                         'advisor2@devria.com', 'Reviewing',  '{"bank":"Citi","account":"****3301","routing":"031100209"}',         true,  false, NULL, 'US', now() - interval '12 days'),
+    (v_inv4,  v_firm, 'Sterling Ridge Partners LP',    'Limited Partnership', 'srp@example.com',        NULL,                NULL,                                                       'advisor2@devria.com', 'Reviewing',  NULL,                                                                false, false, 'NY', 'US', now() - interval '18 days'),
+    (v_inv5,  v_firm, 'Dr. Marcus Holt Roth IRA',      'IRA',                 'mholt@example.com',      '+1 (617) 555-0133', '200 Clarendon St, Boston, MA 02116',                       'advisor1@devria.com', 'Approved',   '{"bank":"Schwab","account":"****9901","routing":"121202211"}',       false, true,  NULL, 'US', now() - interval '550 days'),
+    (v_inv6,  v_firm, 'Calloway Foundation',           'Non-Profit',          'giving@calloway.org',    '+1 (214) 555-0165', '1500 Main St, Dallas, TX 75201',                             'advisor1@devria.com', 'Approved',   '{"bank":"Bank of America","account":"****2241","routing":"026009593"}', false, false, 'TX', 'US', now() - interval '400 days'),
+    (v_inv7,  v_firm, 'Westport Endowment Partners',   'LLC',                 'endowment@westport.com', '+1 (203) 555-0188', '1 Harbor Dr, Westport, CT 06880',                          'advisor2@devria.com', 'Approved',   '{"bank":"JPMorgan","account":"****8810","routing":"021000021"}',     false, false, 'CT', 'US', now() - interval '350 days'),
+    (v_inv8,  v_firm, 'Chen & Associates IRA',          'IRA',                 'chen@example.com',       NULL,                NULL,                                                       'advisor2@devria.com', 'Pending',    NULL,                                                                false, false, NULL, 'US', now() - interval '3 days'),
+    (v_inv9,  v_firm, 'Mirabel Group LLC',              'LLC',                 'info@mirabelgroup.com',  '+1 (305) 555-0120', '100 Biscayne Blvd, Miami, FL 33132',                       'advisor1@devria.com', 'Escalated',  NULL,                                                                false, false, 'FL', 'US', now() - interval '8 days'),
+    (v_inv10, v_firm, 'Aldridge Family Office',         'Trust',               'afo@aldridge.com',       '+1 (312) 555-0155', '233 S Wacker Dr, Chicago, IL 60606',                       'advisor1@devria.com', 'Approved',   '{"bank":"Fidelity","account":"****5503","routing":"101205681"}',     false, false, 'IL', 'US', now() - interval '200 days')
   ON CONFLICT (id) DO NOTHING;
+
+  UPDATE investors SET client_one_name = 'James Blackwood'      WHERE id = v_inv1;
+  UPDATE investors SET client_one_name = 'Michael Nguyen'       WHERE id = v_inv2;
+  UPDATE investors SET client_one_name = 'Patricia Okonkwo'     WHERE id = v_inv3;
+  UPDATE investors SET client_one_name = 'David Sterling'       WHERE id = v_inv4;
+  UPDATE investors SET client_one_name = 'Marcus Holt'          WHERE id = v_inv5;
+  UPDATE investors SET client_one_name = 'Margaret Calloway'    WHERE id = v_inv6;
+  UPDATE investors SET client_one_name = 'Robert Chen'          WHERE id = v_inv7;
+  UPDATE investors SET client_one_name = 'Wei Chen'             WHERE id = v_inv8;
+  UPDATE investors SET client_one_name = 'Sofia Mirabel'        WHERE id = v_inv9;
+  UPDATE investors SET client_one_name = 'William Aldridge'     WHERE id = v_inv10;
 
   -- -------------------------------------------------------------------------
   -- COMMITMENTS — Meridian Growth Fund III (active)
