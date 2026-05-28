@@ -61,8 +61,8 @@ def active_commitments_capital(deal_id: str, firm_id: str) -> tuple[Decimal, int
     return total, len(rows)
 
 
-def _q2(x: Decimal) -> float:
-    return float(x.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP))
+def _q2(x: Decimal | float | int) -> float:
+    return float(Decimal(str(x)).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP))
 
 
 def _party_label(arr: dict) -> str:
@@ -177,9 +177,8 @@ def compute_commitment_wire_breakdown(
             })
 
     fee_component_total = sum(
-        Decimal(str(x["amount"]))
-        for x in lines
-        if x["code"] != "commitment"
+        (Decimal(str(x["amount"])) for x in lines if x["code"] != "commitment"),
+        Decimal(0),
     )
     total_wire = cmt + fee_component_total
 

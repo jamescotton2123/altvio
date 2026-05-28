@@ -51,6 +51,7 @@ DECLARE
   -- Distributions
   v_dist1 UUID := 'd1000000-0000-0000-0000-000000000001'; -- Sequoia Q1 2025
   v_dist2 UUID := 'd1000000-0000-0000-0000-000000000002'; -- Sequoia Q3 2024
+  v_dist3 UUID := 'd1000000-0000-0000-0000-000000000003'; -- Sequoia Q2 2025 (processing)
 
 BEGIN
 
@@ -116,7 +117,19 @@ BEGIN
     -- DocuSign sent, wire pending
     (v_com2,  v_firm, v_deal_active1, v_inv3,  'Active',  250000,       0,  2500, 1.00, 'Sent',      'Awaiting Funds', false, false, now() - interval '8 days',  now() - interval '8 days'),
     (v_com12, v_firm, v_deal_active1, v_inv5,  'Active', 1000000,       0, 10000, 1.00, 'Sent',      'Awaiting Funds', true,  true,  now() - interval '5 days',  now() - interval '5 days')
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (id) DO UPDATE SET
+    deal_id = EXCLUDED.deal_id,
+    investor_id = EXCLUDED.investor_id,
+    status = EXCLUDED.status,
+    committed_amount = EXCLUDED.committed_amount,
+    funded_amount = EXCLUDED.funded_amount,
+    fee_amount = EXCLUDED.fee_amount,
+    advisory_fee_pct = EXCLUDED.advisory_fee_pct,
+    docusign_status = EXCLUDED.docusign_status,
+    wire_status = EXCLUDED.wire_status,
+    kyc_verified = EXCLUDED.kyc_verified,
+    verbal_confirmed = EXCLUDED.verbal_confirmed,
+    commitment_date = EXCLUDED.commitment_date;
 
   -- -------------------------------------------------------------------------
   -- COMMITMENTS — Lakewood Credit Opportunities I (active, newer raise)
@@ -130,7 +143,19 @@ BEGIN
     (v_com13, v_firm, v_deal_active2, v_inv2,  'Active', 1000000, 1000000, 10000, 1.00, 'Completed', 'Funded',         true,  true,  now() - interval '10 days', now() - interval '10 days'),
     (v_com14, v_firm, v_deal_active2, v_inv10, 'Active', 2000000, 2000000, 20000, 1.00, 'Completed', 'Funded',         true,  true,  now() - interval '8 days',  now() - interval '8 days'),
     (v_com15, v_firm, v_deal_active2, v_inv6,  'Active',  500000,       0,  5000, 1.00, 'Sent',      'Awaiting Funds', true,  true,  now() - interval '3 days',  now() - interval '3 days')
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (id) DO UPDATE SET
+    deal_id = EXCLUDED.deal_id,
+    investor_id = EXCLUDED.investor_id,
+    status = EXCLUDED.status,
+    committed_amount = EXCLUDED.committed_amount,
+    funded_amount = EXCLUDED.funded_amount,
+    fee_amount = EXCLUDED.fee_amount,
+    advisory_fee_pct = EXCLUDED.advisory_fee_pct,
+    docusign_status = EXCLUDED.docusign_status,
+    wire_status = EXCLUDED.wire_status,
+    kyc_verified = EXCLUDED.kyc_verified,
+    verbal_confirmed = EXCLUDED.verbal_confirmed,
+    commitment_date = EXCLUDED.commitment_date;
 
   -- -------------------------------------------------------------------------
   -- COMMITMENTS — Sequoia Opportunity Fund II (closed)
@@ -162,21 +187,24 @@ BEGIN
   -- -------------------------------------------------------------------------
   INSERT INTO distributions (id, firm_id, deal_id, distribution_date, distribution_type, total_amount, status, created_at)
   VALUES
-    (v_dist1, v_firm, v_deal_closed1, '2025-03-15', 'Quarterly',         85000, 'Sent', now() - interval '60 days'),
-    (v_dist2, v_firm, v_deal_closed1, '2024-09-30', 'Return of Capital', 50000, 'Sent', now() - interval '240 days')
+    (v_dist1, v_firm, v_deal_closed1, '2025-03-15', 'Quarterly',         85000, 'Sent',       now() - interval '60 days'),
+    (v_dist2, v_firm, v_deal_closed1, '2024-09-30', 'Return of Capital', 50000, 'Sent',       now() - interval '240 days'),
+    (v_dist3, v_firm, v_deal_closed1, '2025-06-15', 'Quarterly',         92000, 'Processing', now() - interval '5 days')
   ON CONFLICT (id) DO NOTHING;
+
+  UPDATE distributions SET wire_date = DATE '2025-06-20' WHERE id = v_dist3;
 
   -- Distribution notices — Q1 2025
   INSERT INTO distribution_notices (firm_id, distribution_id, investor_id, status, individual_amount, sent_at, kyc_verified, verbal_confirmed)
-  SELECT v_firm, v_dist1, v_inv1, 'Sent', 55769.23, now() - interval '59 days', true, true
+  SELECT v_firm, v_dist1, v_inv1, 'Sent', 55769.23, now() - interval '120 days', true, true
   WHERE NOT EXISTS (SELECT 1 FROM distribution_notices WHERE distribution_id = v_dist1 AND investor_id = v_inv1);
 
   INSERT INTO distribution_notices (firm_id, distribution_id, investor_id, status, individual_amount, sent_at, kyc_verified, verbal_confirmed)
-  SELECT v_firm, v_dist1, v_inv2, 'Sent', 22307.69, now() - interval '59 days', true, true
+  SELECT v_firm, v_dist1, v_inv2, 'Sent', 22307.69, now() - interval '120 days', true, true
   WHERE NOT EXISTS (SELECT 1 FROM distribution_notices WHERE distribution_id = v_dist1 AND investor_id = v_inv2);
 
   INSERT INTO distribution_notices (firm_id, distribution_id, investor_id, status, individual_amount, sent_at, kyc_verified, verbal_confirmed)
-  SELECT v_firm, v_dist1, v_inv5, 'Sent',  6923.08, now() - interval '59 days', true, false
+  SELECT v_firm, v_dist1, v_inv5, 'Sent',  6923.08, now() - interval '120 days', true, false
   WHERE NOT EXISTS (SELECT 1 FROM distribution_notices WHERE distribution_id = v_dist1 AND investor_id = v_inv5);
 
   -- Distribution notices — Q3 2024 (Return of Capital)
@@ -191,6 +219,19 @@ BEGIN
   INSERT INTO distribution_notices (firm_id, distribution_id, investor_id, status, individual_amount, sent_at, kyc_verified, verbal_confirmed)
   SELECT v_firm, v_dist2, v_inv5, 'Sent',  4230.77, now() - interval '239 days', true, false
   WHERE NOT EXISTS (SELECT 1 FROM distribution_notices WHERE distribution_id = v_dist2 AND investor_id = v_inv5);
+
+  -- Distribution notices — Q2 2025 Processing (Wire Hub demo)
+  INSERT INTO distribution_notices (firm_id, distribution_id, investor_id, commitment_id, status, individual_amount, kyc_verified, verbal_confirmed)
+  SELECT v_firm, v_dist3, v_inv1, v_com4, 'Pending', 60329.03, true, false
+  WHERE NOT EXISTS (SELECT 1 FROM distribution_notices WHERE distribution_id = v_dist3 AND investor_id = v_inv1);
+
+  INSERT INTO distribution_notices (firm_id, distribution_id, investor_id, commitment_id, status, individual_amount, kyc_verified, verbal_confirmed)
+  SELECT v_firm, v_dist3, v_inv2, v_com5, 'Pending', 24131.61, true, false
+  WHERE NOT EXISTS (SELECT 1 FROM distribution_notices WHERE distribution_id = v_dist3 AND investor_id = v_inv2);
+
+  INSERT INTO distribution_notices (firm_id, distribution_id, investor_id, commitment_id, status, individual_amount, kyc_verified, verbal_confirmed)
+  SELECT v_firm, v_dist3, v_inv5, v_com6, 'Pending', 7539.36, true, false
+  WHERE NOT EXISTS (SELECT 1 FROM distribution_notices WHERE distribution_id = v_dist3 AND investor_id = v_inv5);
 
   -- -------------------------------------------------------------------------
   -- KYC REVIEWS
@@ -224,5 +265,126 @@ BEGIN
     '{"type":"LLC","is_joint_tenancy":false}'::jsonb,
     true
   WHERE NOT EXISTS (SELECT 1 FROM kyc_reviews WHERE firm_id = v_firm AND investor_id = v_inv9);
+
+  -- -------------------------------------------------------------------------
+  -- CHANGE LOI (demo draft — address change for Blackwood Family Trust)
+  -- -------------------------------------------------------------------------
+  INSERT INTO investor_change_loi_requests (
+    firm_id, investor_id, loi_type, status, payload, current_snapshot, ai_craft_notes, created_by
+  )
+  SELECT
+    v_firm,
+    v_inv1,
+    'address_change',
+    'ready',
+    '{"new_mailing_address": "1500 Pennsylvania Ave, Suite 200, Wilmington, DE 19801"}'::jsonb,
+    '{"entity_name": "Blackwood Family Trust", "mailing_address": "1200 Market St, Suite 400, Wilmington, DE 19801"}'::jsonb,
+    NULL,
+    'seed'
+  WHERE NOT EXISTS (
+    SELECT 1 FROM investor_change_loi_requests
+    WHERE firm_id = v_firm AND investor_id = v_inv1 AND loi_type = 'address_change' AND status = 'ready'
+  );
+
+  -- -------------------------------------------------------------------------
+  -- INTAKE EMAIL REVIEW — Pending rows for Meridian + Lakewood demo queues
+  -- -------------------------------------------------------------------------
+  INSERT INTO intake_email_review (
+    id, firm_id, message_id, subject, from_address, raw_body, parsed_payload, confidence, status, created_at
+  )
+  VALUES
+    (
+      'e1000000-0000-0000-0000-000000000001',
+      v_firm,
+      'msg-meridian-001',
+      'Re: Meridian Growth Fund III — new subscription interest',
+      'advisor2@devria.com',
+      'Please add Margaret Liu for $500k to Meridian Growth Fund III.',
+      jsonb_build_object(
+        'fund_name', 'Meridian Growth Fund III',
+        'deal_id', v_deal_active1::text,
+        'investor_name', 'Margaret Liu',
+        'committed_amount', 500000,
+        'entity_type', 'Individual'
+      ),
+      'High',
+      'Pending',
+      now() - interval '2 days'
+    ),
+    (
+      'e1000000-0000-0000-0000-000000000002',
+      v_firm,
+      'msg-meridian-002',
+      'FW: Meridian Growth Fund III subscription',
+      'advisor1@devria.com',
+      'Client wants to commit $750k to Meridian Growth Fund III — docs pending.',
+      jsonb_build_object(
+        'fund_name', 'Meridian Growth Fund III',
+        'deal_id', v_deal_active1::text,
+        'investor_name', 'Northgate Capital Partners',
+        'committed_amount', 750000,
+        'entity_type', 'LLC'
+      ),
+      'Medium',
+      'Pending',
+      now() - interval '1 day'
+    ),
+    (
+      'e1000000-0000-0000-0000-000000000003',
+      v_firm,
+      'msg-lakewood-001',
+      'Lakewood Credit Opportunities I — verbal commit',
+      'advisor1@devria.com',
+      'Verbal $1.25M for Lakewood Credit Opportunities I from Aldridge follow-on.',
+      jsonb_build_object(
+        'fund_name', 'Lakewood Credit Opportunities I',
+        'deal_id', v_deal_active2::text,
+        'investor_name', 'Aldridge Family Office',
+        'committed_amount', 1250000,
+        'entity_type', 'Trust'
+      ),
+      'High',
+      'Pending',
+      now() - interval '6 hours'
+    )
+  ON CONFLICT (id) DO NOTHING;
+
+  -- -------------------------------------------------------------------------
+  -- ORION MATCH REVIEW — Meridian investors needing household confirmation
+  -- -------------------------------------------------------------------------
+  UPDATE investors
+  SET orion_match_status = 'Needs Review'
+  WHERE id IN (v_inv3, v_inv4);
+
+  INSERT INTO orion_match_candidates (firm_id, investor_id, candidates, status, created_at, updated_at)
+  VALUES
+    (
+      v_firm,
+      v_inv3,
+      '[
+        {"name": "Okonkwo Household", "score": 91.2},
+        {"name": "Patricia Okonkwo IRA", "score": 84.5},
+        {"name": "P. Okonkwo", "score": 78.0}
+      ]'::jsonb,
+      'Pending',
+      now() - interval '3 days',
+      now() - interval '3 days'
+    ),
+    (
+      v_firm,
+      v_inv4,
+      '[
+        {"name": "Sterling Ridge Partners", "score": 88.0},
+        {"name": "Sterling Household", "score": 81.3},
+        {"name": "David Sterling LP", "score": 76.5}
+      ]'::jsonb,
+      'Pending',
+      now() - interval '2 days',
+      now() - interval '2 days'
+    )
+  ON CONFLICT (investor_id) DO UPDATE SET
+    candidates = EXCLUDED.candidates,
+    status = EXCLUDED.status,
+    updated_at = now();
 
 END $$;

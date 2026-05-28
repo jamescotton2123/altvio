@@ -17,9 +17,11 @@ from api.routes import (
     audit,
     audit_surface,
     billing,
+    change_loi,
     client_associate_portal,
     commitments,
     deal_hub,
+    distribution_events,
     docusign_webhook,
     email_templates_crud,
     exec_dashboard,
@@ -84,10 +86,14 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
         "https://altvio.app",
         "https://www.altvio.app",
         "https://usealtvio.app",
     ],
+    # Next.js dev server also binds LAN IPs (e.g. http://192.168.x.x:3000).
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -103,6 +109,7 @@ app.include_router(wire_templates.router, prefix="/wire", tags=["Wire Templates"
 app.include_router(loi.router, prefix="/loi", tags=["LOI"])
 app.include_router(transfers.router, prefix="/transfers", tags=["Transfers of Interest"])
 app.include_router(investors.router, prefix="/investors", tags=["Investors"])
+app.include_router(change_loi.router, tags=["Change LOI"])
 app.include_router(portal.router, prefix="/portal", tags=["Investor Portal"])
 app.include_router(ops_todos.router, prefix="/ops/todos", tags=["Ops To-Do"])
 app.include_router(exec_dashboard.router, prefix="/exec", tags=["Executive Command Center"])
@@ -116,6 +123,7 @@ app.include_router(query.router, prefix="/query", tags=["NL Query"])
 app.include_router(audit.router, prefix="/audit", tags=["Audit"])
 app.include_router(audit_surface.router, tags=["Audit Surface"])
 app.include_router(imports_exports.router, tags=["Imports & Exports"])
+app.include_router(distribution_events.router, tags=["Distribution Events"])
 
 
 @app.get("/health")

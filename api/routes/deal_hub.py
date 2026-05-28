@@ -97,6 +97,45 @@ def _get_firm_settings(firm_id: str) -> dict:
     return result.data
 
 
+_notice_commitment_column: Optional[bool] = None
+
+
+def _distribution_notice_has_commitment_id() -> bool:
+    """True after migration 20260543_distribution_notices_commitment_id is applied."""
+    global _notice_commitment_column
+    if _notice_commitment_column is None:
+        try:
+            supabase.table("distribution_notices").select("commitment_id").limit(1).execute()
+            _notice_commitment_column = True
+        except Exception:
+            _notice_commitment_column = False
+    return _notice_commitment_column
+
+
+def _distribution_notice_insert_row(
+    *,
+    firm_id: str,
+    distribution_id: str,
+    investor_id: str,
+    individual_amount: float,
+    commitment_id: Optional[str] = None,
+    kyc_verified: bool = False,
+    status: str = "Pending",
+) -> dict:
+    row = {
+        "firm_id": firm_id,
+        "distribution_id": distribution_id,
+        "investor_id": investor_id,
+        "individual_amount": individual_amount,
+        "status": status,
+    }
+    if kyc_verified:
+        row["kyc_verified"] = kyc_verified
+    if _distribution_notice_has_commitment_id() and commitment_id:
+        row["commitment_id"] = commitment_id
+    return row
+
+
 # ---------------------------------------------------------------------------
 # Third-party fee arrangements (placement agent, sub-advisor, etc.)
 # ---------------------------------------------------------------------------
@@ -493,6 +532,45 @@ def _enrich_rows_with_kyc(rows: list[dict]) -> list[dict]:
     return enriched
 
 
+def _fetch_commitment_extras_for_hub(cids: list) -> list[dict]:
+    """Load PW / funding fields; tolerate dev DBs missing newer commitment columns."""
+    full_select = (
+        "id, deal_id, memorandum_number, fee_amount, "
+        "liquidation_required, liquidation_due_date, liquidation_needed, cash_shortfall, "
+        "liquidation_acknowledged_at, trader_id, "
+        "funding_entity_name, funding_entity_matches_kyc, funding_entity_kyc_status, wire_status"
+    )
+    slim_select = (
+        "id, deal_id, memorandum_number, fee_amount, "
+        "liquidation_required, liquidation_due_date, liquidation_needed, cash_shortfall, "
+        "liquidation_acknowledged_at, trader_id, wire_status"
+    )
+    try:
+        return (
+            supabase.table("commitments")
+            .select(full_select)
+            .in_("id", cids)
+            .execute()
+            .data
+        ) or []
+    except Exception as exc:
+        msg = str(exc)
+        if "funding_entity_name" not in msg and "42703" not in msg:
+            raise
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "commitments funding columns missing — apply 20260524_funding_source_tracker.sql; using slim hub select"
+        )
+        return (
+            supabase.table("commitments")
+            .select(slim_select)
+            .in_("id", cids)
+            .execute()
+            .data
+        ) or []
+
+
 def _merge_pw_hub_fields(rows: list[dict], firm_id: str) -> None:
     """
     active_deal_hub_view may omit new PW / liquidation columns — merge from base tables for ops UI.
@@ -503,17 +581,7 @@ def _merge_pw_hub_fields(rows: list[dict], firm_id: str) -> None:
     cids = [r["commitment_id"] for r in rows if r.get("commitment_id")]
     cmap: dict[str, dict] = {}
     if cids:
-        extra = (
-            supabase.table("commitments")
-            .select(
-                "id, deal_id, liquidation_required, liquidation_due_date, liquidation_needed, cash_shortfall, "
-                "liquidation_acknowledged_at, trader_id, "
-                "funding_entity_name, funding_entity_matches_kyc, funding_entity_kyc_status, wire_status"
-            )
-            .in_("id", cids)
-            .execute()
-            .data
-        ) or []
+        extra = _fetch_commitment_extras_for_hub(cids)
         cmap = {e["id"]: e for e in extra}
         for r in rows:
             cid = r.get("commitment_id")
@@ -521,6 +589,8 @@ def _merge_pw_hub_fields(rows: list[dict], firm_id: str) -> None:
                 continue
             m = cmap[cid]
             for k in (
+                "memorandum_number",
+                "fee_amount",
                 "liquidation_required",
                 "liquidation_due_date",
                 "liquidation_needed",
@@ -557,18 +627,21 @@ def _merge_pw_hub_fields(rows: list[dict], firm_id: str) -> None:
 
     for r in rows:
         cid = r.get("commitment_id")
-        if not cid or cid not in cmap:
+        deal_id_row = cmap.get(cid, {}).get("deal_id") if cid else None
+        if not deal_id_row or r.get("committed_amount") is None:
             continue
-        deal_id_row = cmap[cid].get("deal_id")
-        if deal_id_row and r.get("committed_amount") is not None:
-            try:
-                r["total_wire_due"] = get_commitment_total_wire_due(
-                    r.get("committed_amount"),
-                    deal_id_row,
-                    firm_id,
-                )
-            except Exception:
-                pass
+        try:
+            r["total_wire_due"] = get_commitment_total_wire_due(
+                r.get("committed_amount"),
+                deal_id_row,
+                firm_id,
+            )
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "total_wire_due failed for commitment %s", cid
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1732,6 +1805,7 @@ class DistributionPayload(BaseModel):
     tpa_confirmed_total: float
     distribution_type: str = "Income"
     notes: Optional[str] = None
+    wire_date: Optional[str] = None
     generate_aip: bool = True
 
 
@@ -1766,7 +1840,7 @@ def create_distribution(
 
     commitments = (
         supabase.table("commitments")
-        .select("id, investor_id, funded_amount")
+        .select("id, investor_id, funded_amount, kyc_verified")
         .eq("deal_id", payload.deal_id)
         .eq("firm_id", firm_id)
         .eq("wire_status", "Funded")
@@ -1790,7 +1864,12 @@ def create_distribution(
         funded = Decimal(str(c["funded_amount"] or 0))
         pro_rata = (funded / total_funded * total_amount).quantize(Decimal("0.01"))
         calculated_total += pro_rata
-        notices.append({"investor_id": c["investor_id"], "commitment_id": c["id"], "individual_amount": float(pro_rata)})
+        notices.append({
+            "investor_id": c["investor_id"],
+            "commitment_id": c["id"],
+            "individual_amount": float(pro_rata),
+            "kyc_verified": bool(c.get("kyc_verified", False)),
+        })
 
     delta = abs(calculated_total - tpa_total)
     if delta > Decimal("0.01"):
@@ -1806,6 +1885,7 @@ def create_distribution(
         "firm_id": firm_id,
         "deal_id": payload.deal_id,
         "distribution_date": payload.distribution_date,
+        "wire_date": payload.wire_date or payload.distribution_date,
         "total_amount": payload.total_amount,
         "distribution_type": payload.distribution_type,
         "notes": payload.notes,
@@ -1815,14 +1895,14 @@ def create_distribution(
     distribution_id = distribution["id"]
 
     supabase.table("distribution_notices").insert([
-        {
-            "firm_id": firm_id,
-            "distribution_id": distribution_id,
-            "investor_id": n["investor_id"],
-            "commitment_id": n["commitment_id"],
-            "individual_amount": n["individual_amount"],
-            "status": "Pending",
-        }
+        _distribution_notice_insert_row(
+            firm_id=firm_id,
+            distribution_id=distribution_id,
+            investor_id=n["investor_id"],
+            commitment_id=n.get("commitment_id"),
+            individual_amount=n["individual_amount"],
+            kyc_verified=bool(n.get("kyc_verified", False)),
+        )
         for n in notices
     ]).execute()
 
@@ -1852,80 +1932,187 @@ def create_distribution(
     return result
 
 
+@router.get("/{deal_id}/distributions")
+def list_deal_distributions(
+    deal_id: str,
+    x_firm_id: Optional[str] = Header(default=None),
+):
+    """List all distribution events for a closed fund."""
+    firm_id = _require_firm(x_firm_id)
+
+    deal = (
+        supabase.table("deals")
+        .select("id, offering_name, status")
+        .eq("id", deal_id)
+        .eq("firm_id", firm_id)
+        .single()
+        .execute()
+        .data
+    )
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found.")
+
+    distributions = (
+        supabase.table("distributions")
+        .select("*")
+        .eq("deal_id", deal_id)
+        .eq("firm_id", firm_id)
+        .order("distribution_date", desc=True)
+        .execute()
+        .data
+    ) or []
+
+    out = []
+    for d in distributions:
+        notice_rows = (
+            supabase.table("distribution_notices")
+            .select("id")
+            .eq("distribution_id", d["id"])
+            .eq("firm_id", firm_id)
+            .execute()
+            .data
+        ) or []
+        out.append({
+            **d,
+            "investor_count": len(notice_rows),
+        })
+
+    return {"deal_id": deal_id, "offering_name": deal.get("offering_name"), "distributions": out}
+
+
 @router.get("/{deal_id}/distributions/status-dashboard")
 def distribution_status_dashboard(
     deal_id: str,
     x_firm_id: Optional[str] = Header(default=None),
+    distribution_id: Optional[str] = Query(default=None),
 ):
     """
     Per-investor distribution readiness dashboard for a closed deal.
     Shows KYC verified, verbal confirmed, wire on file, negative consent status.
+    Pass distribution_id to target a specific event (defaults to latest).
     """
+    from core.distribution_readiness import enrich_notice_row, verbal_confirm_days
+    from core.distribution_event_workflow import compute_event_workflow
+
     firm_id = _require_firm(x_firm_id)
+    settings = _get_firm_settings(firm_id)
+    confirm_days = verbal_confirm_days(settings)
 
-    latest_dist = (
-        supabase.table("distributions")
-        .select("id, distribution_date, total_amount, negative_consent_sent_at, status")
-        .eq("deal_id", deal_id)
-        .eq("firm_id", firm_id)
-        .order("distribution_date", desc=True)
-        .limit(1)
-        .execute()
-        .data
-    )
-    distribution = latest_dist[0] if latest_dist else None
+    dist_select = "*"
 
-    # Fallback: query by deal if no distribution yet
+    if distribution_id:
+        distribution = (
+            supabase.table("distributions")
+            .select(dist_select)
+            .eq("id", distribution_id)
+            .eq("deal_id", deal_id)
+            .eq("firm_id", firm_id)
+            .single()
+            .execute()
+            .data
+        )
+    else:
+        latest_dist = (
+            supabase.table("distributions")
+            .select(dist_select)
+            .eq("deal_id", deal_id)
+            .eq("firm_id", firm_id)
+            .order("distribution_date", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+        distribution = latest_dist[0] if latest_dist else None
+
+    notices_data = []
     if distribution:
         notices_data = (
             supabase.table("distribution_notices")
             .select(
-                "investor_id, commitment_id, individual_amount, status, "
+                "id, investor_id, individual_amount, status, "
                 "kyc_verified, verbal_confirmed, verbal_confirmed_at, negative_consent_sent_at, "
-                "investors(entity_name, wire_instructions, handle_with_care)"
+                "investors(entity_name, entity_type, primary_email, phone, wire_instructions, handle_with_care)"
             )
             .eq("distribution_id", distribution["id"])
             .eq("firm_id", firm_id)
             .execute()
             .data
-        )
-    else:
-        notices_data = []
+        ) or []
 
     rows = []
     for n in notices_data:
-        inv = n.get("investors", {})
-        rows.append({
-            "investor_id": n["investor_id"],
-            "entity_name": inv.get("entity_name"),
-            "individual_amount": n.get("individual_amount"),
-            "wire_on_file": bool(inv.get("wire_instructions")),
-            "kyc_verified": n.get("kyc_verified", False),
-            "verbal_confirmed": n.get("verbal_confirmed", False),
-            "verbal_confirmed_at": n.get("verbal_confirmed_at"),
-            "negative_consent_sent": bool(n.get("negative_consent_sent_at")),
-            "handle_with_care": inv.get("handle_with_care", False),
-            "status": n.get("status"),
-            "distribution_ready": (
-                bool(inv.get("wire_instructions"))
-                and n.get("kyc_verified", False)
-                and n.get("verbal_confirmed", False)
-            ),
-        })
+        inv = n.get("investors") or {}
+        rows.append(enrich_notice_row(n, inv, firm_id=firm_id, deal_id=deal_id, confirm_days=confirm_days))
+
+    workflow = compute_event_workflow(distribution or {}, rows, firm_settings=settings) if distribution else None
 
     return {
         "deal_id": deal_id,
         "distribution": distribution,
+        "verbal_confirm_days": confirm_days,
+        "workflow": workflow,
         "summary": {
             "total_investors": len(rows),
             "distribution_ready": sum(1 for r in rows if r["distribution_ready"]),
-            "missing_verbal": sum(1 for r in rows if not r["verbal_confirmed"]),
-            "missing_kyc_verified": sum(1 for r in rows if not r["kyc_verified"]),
-            "missing_wire": sum(1 for r in rows if not r["wire_on_file"]),
-            "negative_consent_sent": sum(1 for r in rows if r["negative_consent_sent"]),
+            "missing_verbal": sum(
+                1 for r in rows if "missing_verbal" in r.get("blockers", [])
+            ),
+            "missing_kyc_verified": sum(
+                1 for r in rows if "missing_kyc" in r.get("blockers", [])
+            ),
+            "missing_wire": sum(
+                1 for r in rows if "missing_wire" in r.get("blockers", [])
+            ),
+            "negative_consent_sent": sum(1 for r in rows if r.get("negative_consent_sent")),
         },
         "investors": rows,
     }
+
+
+class VerbalConfirmPayload(BaseModel):
+    confirmed_by: Optional[str] = None
+
+
+@router.patch("/distribution-notices/{notice_id}/verbal-confirm")
+def mark_distribution_verbal_confirmed(
+    notice_id: str,
+    payload: VerbalConfirmPayload,
+    x_firm_id: Optional[str] = Header(default=None),
+):
+    """Ops marks verbal confirmation complete for this distribution notice."""
+    from datetime import datetime, timezone
+
+    firm_id = _require_firm(x_firm_id)
+
+    notice = (
+        supabase.table("distribution_notices")
+        .select("id, firm_id, investor_id, distribution_id")
+        .eq("id", notice_id)
+        .eq("firm_id", firm_id)
+        .single()
+        .execute()
+        .data
+    )
+    if not notice:
+        raise HTTPException(status_code=404, detail="Distribution notice not found.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    confirmed_by = (payload.confirmed_by or "ops").strip() or "ops"
+
+    updated = (
+        supabase.table("distribution_notices")
+        .update({
+            "verbal_confirmed": True,
+            "verbal_confirmed_at": now,
+            "verbal_confirmed_by": confirmed_by,
+        })
+        .eq("id", notice_id)
+        .eq("firm_id", firm_id)
+        .execute()
+        .data
+    )
+
+    return {"status": "confirmed", "notice": updated[0] if updated else None}
 
 
 @router.post("/{deal_id}/distributions/negative-consent")
@@ -2088,14 +2275,13 @@ def dissolve_deal(
     distribution_id = distribution["id"]
 
     supabase.table("distribution_notices").insert([
-        {
-            "firm_id": firm_id,
-            "distribution_id": distribution_id,
-            "investor_id": n["investor_id"],
-            "commitment_id": n["commitment_id"],
-            "individual_amount": n["individual_amount"],
-            "status": "Pending",
-        }
+        _distribution_notice_insert_row(
+            firm_id=firm_id,
+            distribution_id=distribution_id,
+            investor_id=n["investor_id"],
+            commitment_id=n.get("commitment_id"),
+            individual_amount=n["individual_amount"],
+        )
         for n in notices_data
     ]).execute()
 
